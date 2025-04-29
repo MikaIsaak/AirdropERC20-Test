@@ -32,8 +32,8 @@ contract AirdropERC20 is
         bool finalized;
         uint256 totalAmount;
         uint256 unclaimedAmount;
-        mapping(address => uint256) totalAllocations;
-        mapping(address => uint256) claimedAmounts;
+        mapping(address user => uint256 amount) totalAllocations;
+        mapping(address user => uint256 amount) claimedAmounts;
     }
 
     mapping(uint256 campaignId => Campaign campaign) private campaigns;
@@ -93,7 +93,7 @@ contract AirdropERC20 is
         if (_recipients.length != _amounts.length) revert ArraysMismatch();
 
         uint256 arrayLength = _recipients.length;
-        for (uint256 i = 0; i < arrayLength; i++) {
+        for (uint256 i; i < arrayLength; i++) {
             if (_amounts[i] == 0) revert ZeroAmount();
             if (_recipients[i] == address(0)) revert InvalidAddress();
 

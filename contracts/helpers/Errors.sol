@@ -11,7 +11,6 @@ error ArraysMismatch();
 error InvalidVestingStart();
 error InvalidAddress();
 error VestingNotEnded();
-error ArrayTooLarge();
 error AllocationNotChanged();
 error InvalidMaxVestingStartDelay();
 error VestingStartTooFar();
