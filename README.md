@@ -135,7 +135,7 @@ You will be guided through:
 
 ## ⚠️ Assumptions
 
-- **Max Vesting Start Delay:** The maximum delay for vesting start is hardcoded to 30 days (2,592,000 seconds) in the contract. This value cannot be changed after deployment.
+- **Max Vesting Start Delay:** The maximum delay for vesting start is provided in constructor, but in scripts defined - 30 days (2,592,000 seconds) in the contract. This value can be changed after deployment.
 - **Token Supply:** In the CLI script, the maximum amount of tokens (uint256 max) is minted immediately for testing convenience.
 - **External Libraries:** Test coverage excludes branches related to external libraries, as these are considered pre-tested by their respective maintainers.
 - **Recipient List Size:** The number of recipient addresses and batch size for deployment are configurable by the user via CLI parameters.
