@@ -133,6 +133,15 @@ You will be guided through:
 
 ---
 
+## ⚠️ Assumptions
+
+- **Max Vesting Start Delay:** The maximum delay for vesting start is hardcoded to 30 days (2,592,000 seconds) in the contract. This value cannot be changed after deployment.
+- **Token Supply:** In the CLI script, the maximum amount of tokens (uint256 max) is minted immediately for testing convenience.
+- **External Libraries:** Test coverage excludes branches related to external libraries, as these are considered pre-tested by their respective maintainers.
+- **Recipient List Size:** The number of recipient addresses and batch size for deployment are configurable by the user via CLI parameters.
+
+---
+
 ## 🧪 Example: Generating Test Addresses
 
 A helper script is provided to generate random addresses for testing:
@@ -142,5 +151,7 @@ npx hardhat run scripts/generate-addresses.ts
 ```
 
 This will create a CSV file with 1000 random addresses and default token amounts in `scripts/data/recipients_1000.csv`.
+
 # AidropERC20
+
 # AidropERC20

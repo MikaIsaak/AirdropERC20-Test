@@ -1,6 +1,7 @@
 import { ethers } from "hardhat";
 import { AirdropERC20 } from "../../typechain-types";
 
+const MAX_VESTING_START_DELAY = 86400n * 30n;
 export async function deployAirdropERC20(
   adminAddress: string
 ): Promise<AirdropERC20> {
@@ -13,7 +14,10 @@ export async function deployAirdropERC20(
     }
 
     const AirdropERC20Factory = await ethers.getContractFactory("AirdropERC20");
-    const airdropERC20 = await AirdropERC20Factory.deploy(adminAddress);
+    const airdropERC20 = await AirdropERC20Factory.deploy(
+      adminAddress,
+      MAX_VESTING_START_DELAY
+    );
 
     await airdropERC20.waitForDeployment();
 

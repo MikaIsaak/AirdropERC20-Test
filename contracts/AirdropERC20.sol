@@ -23,6 +23,7 @@ contract AirdropERC20 is
     using SafeTransferLib for ERC20;
 
     uint256 private nextCampaignId;
+    uint256 private maxVestingStartDelay;
 
     struct Campaign {
         address token;
@@ -30,6 +31,7 @@ contract AirdropERC20 is
         uint256 vestingDuration;
         bool finalized;
         uint256 totalAmount;
+        uint256 unclaimedAmount;
         mapping(address => uint256) totalAllocations;
         mapping(address => uint256) claimedAmounts;
     }
@@ -37,14 +39,28 @@ contract AirdropERC20 is
     mapping(uint256 campaignId => Campaign campaign) private campaigns;
 
     /**
-     * @notice Constructor
-     *
+     * @notice Constructor.
      * @param _admin The address of the admin.
+     * @param _maxVestingStartDelay The maximum vesting start delay.
      */
-    constructor(address _admin) Ownable(_admin) {
+    constructor(address _admin, uint256 _maxVestingStartDelay) Ownable(_admin) {
         if (_admin == address(0)) revert InvalidAddress();
+        if (_maxVestingStartDelay == 0) revert InvalidMaxVestingStartDelay();
+
+        maxVestingStartDelay = _maxVestingStartDelay;
         _grantRole(DEFAULT_ADMIN_ROLE, _admin);
         _grantRole(ADMIN_ROLE, _admin);
+    }
+
+    /**
+     * @inheritdoc IAirdropERC20
+     */
+    function setMaxVestingStartDelay(
+        uint256 _newMaxVestingStartDelay
+    ) external onlyRole(ADMIN_ROLE) {
+        if (_newMaxVestingStartDelay == 0) revert InvalidMaxVestingStartDelay();
+
+        maxVestingStartDelay = _newMaxVestingStartDelay;
     }
 
     /**
@@ -83,6 +99,7 @@ contract AirdropERC20 is
 
             campaign.totalAllocations[_recipients[i]] += _amounts[i];
             campaign.totalAmount += _amounts[i];
+            campaign.unclaimedAmount += _amounts[i];
         }
 
         emit RecipientsAdded(_campaignId, arrayLength);
@@ -99,6 +116,7 @@ contract AirdropERC20 is
         if (recipient == address(0)) revert InvalidAddress();
 
         Campaign storage campaign = campaigns[campaignId];
+
         if (campaign.token == address(0)) revert CampaignNotFound();
         if (campaign.finalized) revert CampaignAlreadyFinalized();
         if (campaign.totalAllocations[recipient] == amount)
@@ -106,6 +124,10 @@ contract AirdropERC20 is
 
         uint256 oldAllocation = campaign.totalAllocations[recipient];
         campaign.totalAmount = campaign.totalAmount - oldAllocation + amount;
+        campaign.unclaimedAmount =
+            campaign.unclaimedAmount -
+            oldAllocation +
+            amount;
         campaign.totalAllocations[recipient] = amount;
 
         emit AllocationChanged(campaignId, recipient, amount);
@@ -124,6 +146,8 @@ contract AirdropERC20 is
         if (campaign.token == address(0)) revert CampaignNotFound();
         if (campaign.finalized) revert CampaignAlreadyFinalized();
         if (_vestingStart < block.timestamp) revert InvalidVestingStart();
+        if (_vestingStart > (block.timestamp + maxVestingStartDelay))
+            revert VestingStartTooFar();
         if (campaign.totalAmount == 0) revert ZeroAmount();
 
         SafeTransferLib.safeTransferFrom(
@@ -143,11 +167,32 @@ contract AirdropERC20 is
     /**
      * @inheritdoc IAirdropERC20
      */
+    function updateVestingParameters(
+        uint256 _campaignId,
+        uint256 _newVestingStart,
+        uint256 _newVestingDuration
+    ) external onlyRole(ADMIN_ROLE) {
+        Campaign storage campaign = campaigns[_campaignId];
+
+        if (campaign.token == address(0)) revert CampaignNotFound();
+        if (!campaign.finalized) revert CampaignNotFinalized();
+        if (_newVestingStart < block.timestamp) revert InvalidVestingStart();
+        if (_newVestingStart > block.timestamp + maxVestingStartDelay)
+            revert VestingStartTooFar();
+
+        campaign.vestingStart = _newVestingStart;
+        campaign.vestingDuration = _newVestingDuration;
+    }
+
+    /**
+     * @inheritdoc IAirdropERC20
+     */
     function claim(uint256 _campaignId) external nonReentrant whenNotPaused {
         Campaign storage campaign = campaigns[_campaignId];
 
         if (campaign.token == address(0) || !campaign.finalized)
             revert CampaignNotFinalized();
+
         if (campaign.totalAllocations[msg.sender] == 0)
             revert NoTokensToClaim();
 
@@ -156,10 +201,34 @@ contract AirdropERC20 is
         if (amount == 0) revert NoTokensToClaim();
 
         campaign.claimedAmounts[msg.sender] += amount;
+        campaign.unclaimedAmount -= amount;
 
         SafeTransferLib.safeTransfer(ERC20(campaign.token), msg.sender, amount);
 
         emit TokensClaimed(_campaignId, msg.sender, amount);
+    }
+
+    /**
+     * @inheritdoc IAirdropERC20
+     */
+    function withdrawUnclaimedTokens(
+        uint256 _campaignId,
+        address _to
+    ) external onlyRole(ADMIN_ROLE) {
+        if (_to == address(0)) revert InvalidAddress();
+
+        Campaign storage campaign = campaigns[_campaignId];
+
+        if (campaign.token == address(0)) revert CampaignNotFound();
+        if (!campaign.finalized) revert CampaignNotFinalized();
+        if (block.timestamp <= campaign.vestingStart + campaign.vestingDuration)
+            revert VestingNotEnded();
+
+        uint256 amount = campaign.unclaimedAmount;
+        if (amount == 0) revert NoTokensToClaim();
+
+        campaign.unclaimedAmount = 0;
+        SafeTransferLib.safeTransfer(ERC20(campaign.token), _to, amount);
     }
 
     /**
@@ -176,36 +245,11 @@ contract AirdropERC20 is
         _unpause();
     }
 
-    /**
-     * @notice Withdraws unclaimed tokens after vesting period ends.
-     *
-     * @param _campaignId The ID of the campaign.
-     * @param _to The address to send the unclaimed tokens to.
-     */
-    function withdrawUnclaimedTokens(
-        uint256 _campaignId,
-        address _to
-    ) external onlyRole(ADMIN_ROLE) {
-        if (_to == address(0)) revert InvalidAddress();
-
-        Campaign storage campaign = campaigns[_campaignId];
-
-        if (campaign.token == address(0)) revert CampaignNotFound();
-
-        if (block.timestamp <= campaign.vestingStart + campaign.vestingDuration)
-            revert VestingNotEnded();
-
-        uint256 balance = ERC20(campaign.token).balanceOf(address(this));
-
-        SafeTransferLib.safeTransfer(ERC20(campaign.token), _to, balance);
-    }
-
     //   ____ _____ _____ _____ _____ ____  ____
     //  / ___| ____|_   _|_   _| ____|  _ \/ ___|
     // | |  _|  _|   | |   | | |  _| | |_) \___ \
     // | |_| | |___  | |   | | | |___|  _ < ___) |
     //  \____|_____| |_|   |_| |_____|_| \_\____/
-
     /**
      * @inheritdoc IAirdropERC20
      */
@@ -214,6 +258,7 @@ contract AirdropERC20 is
         address _recipient
     ) public view returns (uint256) {
         Campaign storage campaign = campaigns[_campaignId];
+
         uint256 totalAllocation = campaign.totalAllocations[_recipient];
         uint256 claimed = campaign.claimedAmounts[_recipient];
 
@@ -248,6 +293,13 @@ contract AirdropERC20 is
      */
     function getNextCampaignId() external view returns (uint256) {
         return nextCampaignId;
+    }
+
+    /**
+     * @inheritdoc IAirdropERC20
+     */
+    function getMaxVestingStartDelay() external view returns (uint256) {
+        return maxVestingStartDelay;
     }
 
     /**
@@ -303,9 +355,19 @@ contract AirdropERC20 is
         address _user
     ) external view returns (uint256 totalAllocation, uint256 claimed) {
         Campaign storage campaign = campaigns[_campaignId];
+
         return (
             campaign.totalAllocations[_user],
             campaign.claimedAmounts[_user]
         );
+    }
+
+    /**
+     * @inheritdoc IAirdropERC20
+     */
+    function getCampaignUnclaimedAmount(
+        uint256 _campaignId
+    ) external view returns (uint256 unclaimedAmount) {
+        return campaigns[_campaignId].unclaimedAmount;
     }
 }

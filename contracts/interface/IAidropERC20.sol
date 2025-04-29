@@ -169,4 +169,56 @@ interface IAirdropERC20 {
         uint256 _campaignId,
         address _user
     ) external view returns (uint256 totalAllocation, uint256 claimed);
+
+    /**
+     * @notice Withdraws unclaimed tokens from a campaign after the vesting period has ended.
+     *
+     * @dev Only the admin can withdraw unclaimed tokens.
+     * @dev The campaign must be finalized.
+     * @dev The vesting period must have ended.
+     *
+     * @param _campaignId The id of the campaign.
+     * @param _to The address to send the unclaimed tokens to.
+     */
+    function withdrawUnclaimedTokens(uint256 _campaignId, address _to) external;
+
+    /**
+     * @notice Updates vesting parameters for a campaign.
+     * @dev Only the admin can update vesting parameters.
+     * @dev The campaign must be finalized.
+     * @dev The new vesting start must be in the future and within the maximum delay.
+     *
+     * @param _campaignId The id of the campaign.
+     * @param _newVestingStart The new vesting start time.
+     * @param _newVestingDuration The new vesting duration.
+     */
+    function updateVestingParameters(
+        uint256 _campaignId,
+        uint256 _newVestingStart,
+        uint256 _newVestingDuration
+    ) external;
+
+    /**
+     * @notice Sets the maximum vesting start delay.
+     * @param _newMaxVestingStartDelay The new maximum vesting start delay.
+     */
+    function setMaxVestingStartDelay(uint256 _newMaxVestingStartDelay) external;
+
+    /**
+     * @notice Returns the maximum vesting start delay.
+     *
+     * @return The maximum vesting start delay.
+     */
+    function getMaxVestingStartDelay() external view returns (uint256);
+
+    /**
+     * @notice Returns the unclaimed amount of a campaign.
+     *
+     * @param _campaignId The id of the campaign.
+     *
+     * @return unclaimedAmount The unclaimed amount of the campaign.
+     */
+    function getCampaignUnclaimedAmount(
+        uint256 _campaignId
+    ) external view returns (uint256 unclaimedAmount);
 }

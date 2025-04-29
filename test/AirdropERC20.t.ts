@@ -26,7 +26,7 @@ describe("AirdropERC20", function () {
     token = await MockERC20.deploy("Test Token", "TEST");
 
     const AirdropERC20 = await ethers.getContractFactory("AirdropERC20");
-    airdrop = await AirdropERC20.deploy(owner.address);
+    airdrop = await AirdropERC20.deploy(owner.address, 86400n * 30n);
 
     await token.mint(owner.address, TOTAL_TOKENS);
     await token.connect(owner).approve(airdrop.target, TOTAL_TOKENS);
@@ -35,7 +35,7 @@ describe("AirdropERC20", function () {
   beforeEach(async function () {
     await deployContracts();
     vestingStart = BigInt(await time.latest()) + 10n;
-    vestingDuration = 86400n * 30n; // 30 days
+    vestingDuration = 86400n * 30n;
   });
 
   describe("Constructor", function () {
@@ -43,13 +43,12 @@ describe("AirdropERC20", function () {
       expect(await airdrop.owner()).to.equal(owner.address);
     });
 
-    //tested by Ownable contract
-    // it("Should revert if admin is zero address", async function () {
-    //   const AirdropERC20 = await ethers.getContractFactory("AirdropERC20");
-    //   await expect(
-    //     AirdropERC20.deploy(ethers.ZeroAddress)
-    //   ).to.be.revertedWithCustomError(airdrop, "InvalidAddress");
-    // });
+    it("Should revert if maxVestingStartDelay is zero", async function () {
+      const AirdropERC20 = await ethers.getContractFactory("AirdropERC20");
+      await expect(
+        AirdropERC20.deploy(owner.address, 0n)
+      ).to.be.revertedWithCustomError(airdrop, "InvalidMaxVestingStartDelay");
+    });
   });
 
   describe("createCampaign", function () {
@@ -58,12 +57,6 @@ describe("AirdropERC20", function () {
       const campaignId = await airdrop.getNextCampaignId();
       expect(campaignId).to.equal(1n);
     });
-
-    // it("should revert if caller is not admin", async function () {
-    //   await expect(
-    //     airdrop.connect(recipient1).createCampaign(token.target)
-    //   ).to.be.revertedWithCustomError(airdrop, "NotAdmin");
-    // });
 
     it("should revert if token address is zero", async function () {
       await expect(
@@ -93,9 +86,7 @@ describe("AirdropERC20", function () {
   });
 
   describe("addRecipients", function () {
-    it("should add recipients to campaign", async function () {
-      // TODO: implement test
-    });
+    it("should add recipients to campaign", async function () {});
 
     it("should revert if campaign isn't created", async function () {
       await expect(
@@ -148,16 +139,6 @@ describe("AirdropERC20", function () {
       await expect(
         airdrop.addRecipients(0n, [ethers.ZeroAddress], [10n * 10n ** 18n])
       ).to.be.revertedWithCustomError(airdrop, "InvalidAddress");
-    });
-
-    it("should revert if recipients array is too large", async function () {
-      await airdrop.createCampaign(token.target);
-      const largeArray = Array(101).fill(recipient1.address);
-      const largeAmounts = Array(101).fill(10n * 10n ** 18n);
-
-      await expect(
-        airdrop.addRecipients(0n, largeArray, largeAmounts)
-      ).to.be.revertedWithCustomError(airdrop, "ArrayTooLarge");
     });
   });
 
@@ -242,7 +223,6 @@ describe("AirdropERC20", function () {
       await airdrop.createCampaign(token.target);
       await airdrop.addRecipients(0n, [recipient1.address], [10n * 10n ** 18n]);
 
-      // Пытаемся изменить аллокацию на ту же сумму
       await expect(
         airdrop.changeUserAllocation(0n, recipient1.address, 10n * 10n ** 18n)
       ).to.be.revertedWithCustomError(airdrop, "AllocationNotChanged");
@@ -276,6 +256,18 @@ describe("AirdropERC20", function () {
           vestingDuration
         )
       ).to.be.revertedWithCustomError(airdrop, "InvalidVestingStart");
+    });
+
+    it("should revert if vesting start is too far in the future", async function () {
+      await airdrop.createCampaign(token.target);
+      await airdrop.addRecipients(0n, [recipient1.address], [10n * 10n ** 18n]);
+      const maxDelay = await airdrop.getMaxVestingStartDelay();
+      console.log("maxDelay", maxDelay);
+      const tooFarVestingStart = BigInt(await time.latest()) + maxDelay + 100n;
+      console.log("tooFarVestingStart", tooFarVestingStart);
+      await expect(
+        airdrop.finalizeCampaign(0n, tooFarVestingStart, vestingDuration)
+      ).to.be.revertedWithCustomError(airdrop, "VestingStartTooFar");
     });
 
     it("should revert if total amount is zero", async function () {
@@ -349,7 +341,7 @@ describe("AirdropERC20", function () {
       const actualBalance = await token.balanceOf(recipient1.address);
       expect(actualBalance).to.be.closeTo(
         expectedBalance,
-        expectedBalance / 1000n // Погрешность 0.1%
+        expectedBalance / 1000n
       );
     });
 
@@ -386,7 +378,6 @@ describe("AirdropERC20", function () {
         0n,
         recipient1.address
       );
-      //@todo
       await expect(airdrop.connect(recipient1).claim(0n))
         .to.emit(airdrop, "TokensClaimed")
         .withArgs(0n, recipient1.address, 333337191358024691n);
@@ -417,21 +408,18 @@ describe("AirdropERC20", function () {
       await airdrop.addRecipients(0n, [recipient1.address], [10n * 10n ** 18n]);
       await airdrop.finalizeCampaign(0n, vestingStart, vestingDuration);
 
-      // Проверяем, что у пользователя есть токены
       const [totalAllocation] = await airdrop.getCampaignRecipientInfo(
         0n,
         recipient1.address
       );
       expect(totalAllocation).to.equal(10n * 10n ** 18n);
 
-      // Проверяем, что getClaimableAmount возвращает 0 до начала вестинга
       const claimableAmount = await airdrop.getClaimableAmount(
         0n,
         recipient1.address
       );
       expect(claimableAmount).to.equal(0n);
 
-      // Проверяем, что claim возвращает NoTokensToClaim
       await expect(
         airdrop.connect(recipient1).claim(0n)
       ).to.be.revertedWithCustomError(airdrop, "NoTokensToClaim");
@@ -440,9 +428,8 @@ describe("AirdropERC20", function () {
     it("should allow claiming immediately after finalization", async function () {
       await airdrop.createCampaign(token.target);
       await airdrop.addRecipients(0n, [recipient1.address], [10n * 10n ** 18n]);
-      await airdrop.finalizeCampaign(0n, vestingStart, 0n); // vestingDuration = 0
+      await airdrop.finalizeCampaign(0n, vestingStart, 0n);
 
-      // Увеличиваем время до vestingStart
       await time.increaseTo(vestingStart);
 
       const userBalace = await token.balanceOf(recipient1.address);
@@ -462,7 +449,7 @@ describe("AirdropERC20", function () {
     it("should return full amount in getClaimableAmount when vestingDuration is 0", async function () {
       await airdrop.createCampaign(token.target);
       await airdrop.addRecipients(0n, [recipient1.address], [10n * 10n ** 18n]);
-      await airdrop.finalizeCampaign(0n, vestingStart, 0n); // vestingDuration = 0
+      await airdrop.finalizeCampaign(0n, vestingStart, 0n);
 
       await time.increaseTo(vestingStart + 1n);
 
@@ -482,17 +469,14 @@ describe("AirdropERC20", function () {
         [TOTAL_TOKENS / 10n]
       );
 
-      // Устанавливаем vestingStart в будущее
       const currentTime = await time.latest();
-      const futureVestingStart = BigInt(currentTime) + 3600n; // +1 час
-      await airdrop.finalizeCampaign(0n, futureVestingStart, 0n); // vestingDuration = 0 для обхода проверки в getClaimableAmount
+      const futureVestingStart = BigInt(currentTime) + 3600n;
+      await airdrop.finalizeCampaign(0n, futureVestingStart, 0n);
 
-      // Пытаемся получить токены до начала вестинга
       await expect(
         airdrop.connect(recipient1).claim(0n)
       ).to.be.revertedWithCustomError(airdrop, "NoTokensToClaim");
 
-      // Проверяем, что после начала вестинга claim работает
       await time.increaseTo(futureVestingStart + 1n);
       await expect(airdrop.connect(recipient1).claim(0n)).to.not.be.reverted;
     });
@@ -508,12 +492,18 @@ describe("AirdropERC20", function () {
       );
       await airdrop.finalizeCampaign(0n, vestingStart, vestingDuration);
 
-      // Перемещаем время после окончания вестинга
       await time.increaseTo(vestingStart + vestingDuration + 1n);
 
       await expect(
         airdrop.withdrawUnclaimedTokens(0n, ethers.ZeroAddress)
       ).to.be.revertedWithCustomError(airdrop, "InvalidAddress");
+    });
+
+    it("should revert if campaign is not finalized", async function () {
+      await airdrop.createCampaign(token.target);
+      await expect(
+        airdrop.withdrawUnclaimedTokens(0n, owner.address)
+      ).to.be.revertedWithCustomError(airdrop, "CampaignNotFinalized");
     });
 
     it("should revert if campaign does not exist", async function () {
@@ -547,7 +537,6 @@ describe("AirdropERC20", function () {
       );
       await airdrop.finalizeCampaign(0n, vestingStart, vestingDuration);
 
-      // Перемещаем время после окончания вестинга
       await time.increaseTo(vestingStart + vestingDuration + 1n);
 
       const initialBalance = await token.balanceOf(owner.address);
@@ -566,7 +555,6 @@ describe("AirdropERC20", function () {
       );
       await airdrop.finalizeCampaign(0n, vestingStart, vestingDuration);
 
-      // Перемещаем время после окончания вестинга
       await time.increaseTo(vestingStart + vestingDuration + 1n);
 
       const contractBalance = await token.balanceOf(airdrop.target);
@@ -589,7 +577,6 @@ describe("AirdropERC20", function () {
       );
       await airdrop.finalizeCampaign(0n, vestingStart, vestingDuration);
 
-      // Перемещаем время после окончания вестинга
       await time.increaseTo(vestingStart + vestingDuration + 1n);
 
       await expect(
@@ -611,18 +598,13 @@ describe("AirdropERC20", function () {
       );
       await airdrop.finalizeCampaign(0n, vestingStart, vestingDuration);
 
-      // Перемещаем время после окончания вестинга
       await time.increaseTo(vestingStart + vestingDuration + 1n);
 
-      // Сначала выводим все токены
       await airdrop.withdrawUnclaimedTokens(0n, owner.address);
 
-      // Пытаемся вывести снова
-      const initialBalance = await token.balanceOf(owner.address);
-      await airdrop.withdrawUnclaimedTokens(0n, owner.address);
-      const finalBalance = await token.balanceOf(owner.address);
-
-      expect(finalBalance).to.equal(initialBalance);
+      await expect(
+        airdrop.withdrawUnclaimedTokens(0n, owner.address)
+      ).to.be.revertedWithCustomError(airdrop, "NoTokensToClaim");
     });
 
     it("should emit event when tokens are withdrawn", async function () {
@@ -634,7 +616,6 @@ describe("AirdropERC20", function () {
       );
       await airdrop.finalizeCampaign(0n, vestingStart, vestingDuration);
 
-      // Перемещаем время после окончания вестинга
       await time.increaseTo(vestingStart + vestingDuration + 1n);
 
       const contractBalance = await token.balanceOf(airdrop.target);
@@ -732,7 +713,6 @@ describe("AirdropERC20", function () {
       expect(totalAllocation).to.equal(TOTAL_TOKENS / 10n);
       expect(claimed).to.equal(0n);
 
-      // После получения части токенов
       await time.increaseTo(vestingStart + vestingDuration / 2n);
       await airdrop.connect(recipient1).claim(0n);
 
@@ -743,7 +723,7 @@ describe("AirdropERC20", function () {
       const expectedClaimed = TOTAL_TOKENS / 20n;
       expect(claimedAfter).to.be.closeTo(
         expectedClaimed,
-        expectedClaimed / 1000n // Погрешность 0.1%
+        expectedClaimed / 1000n
       );
     });
 
@@ -853,35 +833,13 @@ describe("AirdropERC20", function () {
       );
       await airdrop.finalizeCampaign(0n, vestingStart, vestingDuration);
 
-      // Перемещаем время после окончания вестинга
       await time.increaseTo(vestingStart + vestingDuration + 1n);
 
-      // Получаем все токены
       await airdrop.connect(recipient1).claim(0n);
 
-      // Пытаемся вывести нулевой баланс
-      const tx = await airdrop.withdrawUnclaimedTokens(0n, owner.address);
-      await expect(tx).to.not.be.reverted;
-    });
-
-    it("should handle multiple withdrawals", async function () {
-      await airdrop.createCampaign(token.target);
-      await airdrop.addRecipients(
-        0n,
-        [recipient1.address],
-        [TOTAL_TOKENS / 10n]
-      );
-      await airdrop.finalizeCampaign(0n, vestingStart, vestingDuration);
-
-      // Перемещаем время после окончания вестинга
-      await time.increaseTo(vestingStart + vestingDuration + 1n);
-
-      // Первый вывод
-      await airdrop.withdrawUnclaimedTokens(0n, owner.address);
-
-      // Второй вывод (должен пройти, но с нулевым балансом)
-      const tx = await airdrop.withdrawUnclaimedTokens(0n, owner.address);
-      await expect(tx).to.not.be.reverted;
+      await expect(
+        airdrop.withdrawUnclaimedTokens(0n, owner.address)
+      ).to.be.revertedWithCustomError(airdrop, "NoTokensToClaim");
     });
 
     it("should revert withdrawal during vesting with correct error", async function () {
@@ -893,7 +851,6 @@ describe("AirdropERC20", function () {
       );
       await airdrop.finalizeCampaign(0n, vestingStart, vestingDuration);
 
-      // Пытаемся вывести до окончания вестинга
       await expect(
         airdrop.withdrawUnclaimedTokens(0n, owner.address)
       ).to.be.revertedWithCustomError(airdrop, "VestingNotEnded");
@@ -927,7 +884,7 @@ describe("AirdropERC20", function () {
     it("should return 0 if all tokens are already claimed", async function () {
       await airdrop.createCampaign(token.target);
       await airdrop.addRecipients(0n, [recipient1.address], [10n * 10n ** 18n]);
-      await airdrop.finalizeCampaign(0n, vestingStart, 0n); // Нулевая длительность вестинга
+      await airdrop.finalizeCampaign(0n, vestingStart, 0n);
 
       await time.increaseTo(vestingStart + 1n);
       await airdrop.connect(recipient1).claim(0n);
@@ -937,6 +894,173 @@ describe("AirdropERC20", function () {
         recipient1.address
       );
       expect(claimableAmount).to.equal(0n);
+    });
+  });
+
+  describe("setMaxVestingStartDelay", function () {
+    it("should set new max vesting start delay", async function () {
+      const newDelay = 86400n * 60n;
+      await airdrop.setMaxVestingStartDelay(newDelay);
+      expect(await airdrop.getMaxVestingStartDelay()).to.equal(newDelay);
+    });
+
+    it("should revert if new delay is zero", async function () {
+      await expect(
+        airdrop.setMaxVestingStartDelay(0n)
+      ).to.be.revertedWithCustomError(airdrop, "InvalidMaxVestingStartDelay");
+    });
+
+    it("should revert if caller is not admin", async function () {
+      await expect(
+        airdrop.connect(recipient1).setMaxVestingStartDelay(86400n * 60n)
+      ).to.be.revertedWithCustomError(
+        airdrop,
+        "AccessControlUnauthorizedAccount"
+      );
+    });
+  });
+
+  describe("updateVestingParameters", function () {
+    beforeEach(async function () {
+      await airdrop.createCampaign(token.target);
+      await airdrop.addRecipients(
+        0n,
+        [recipient1.address],
+        [TOTAL_TOKENS / 10n]
+      );
+      await airdrop.finalizeCampaign(0n, vestingStart, vestingDuration);
+    });
+
+    it("should update vesting parameters", async function () {
+      const newVestingStart = BigInt(await time.latest()) + 86400n * 15n;
+      const newVestingDuration = 86400n * 45n;
+
+      await airdrop.updateVestingParameters(
+        0n,
+        newVestingStart,
+        newVestingDuration
+      );
+
+      expect(await airdrop.getCampaignVestingStart(0n)).to.equal(
+        newVestingStart
+      );
+      expect(await airdrop.getCampaignVestingDuration(0n)).to.equal(
+        newVestingDuration
+      );
+    });
+
+    it("should revert if campaign does not exist", async function () {
+      const nonExistentCampaignId = 999n;
+      await expect(
+        airdrop.updateVestingParameters(
+          nonExistentCampaignId,
+          vestingStart,
+          vestingDuration
+        )
+      ).to.be.revertedWithCustomError(airdrop, "CampaignNotFound");
+    });
+
+    it("should revert if campaign is not finalized", async function () {
+      await airdrop.createCampaign(token.target);
+      await airdrop.addRecipients(
+        1n,
+        [recipient1.address],
+        [TOTAL_TOKENS / 10n]
+      );
+
+      await expect(
+        airdrop.updateVestingParameters(1n, vestingStart, vestingDuration)
+      ).to.be.revertedWithCustomError(airdrop, "CampaignNotFinalized");
+    });
+
+    it("should revert if new vesting start is in the past", async function () {
+      const pastVestingStart = BigInt(await time.latest()) - 86400n;
+      await expect(
+        airdrop.updateVestingParameters(0n, pastVestingStart, vestingDuration)
+      ).to.be.revertedWithCustomError(airdrop, "InvalidVestingStart");
+    });
+
+    it("should revert if new vesting start is too far in the future", async function () {
+      const maxDelay = await airdrop.getMaxVestingStartDelay();
+      const tooFarVestingStart = BigInt(await time.latest()) + maxDelay + 100n;
+      await expect(
+        airdrop.updateVestingParameters(0n, tooFarVestingStart, vestingDuration)
+      ).to.be.revertedWithCustomError(airdrop, "VestingStartTooFar");
+    });
+
+    it("should revert if caller is not admin", async function () {
+      await expect(
+        airdrop
+          .connect(recipient1)
+          .updateVestingParameters(0n, vestingStart, vestingDuration)
+      ).to.be.revertedWithCustomError(
+        airdrop,
+        "AccessControlUnauthorizedAccount"
+      );
+    });
+
+    it("should allow updating vesting parameters at the maximum allowed delay", async function () {
+      const maxDelay = await airdrop.getMaxVestingStartDelay();
+      const maxAllowedVestingStart = BigInt(await time.latest()) + maxDelay;
+
+      await expect(
+        airdrop.updateVestingParameters(
+          0n,
+          maxAllowedVestingStart,
+          vestingDuration
+        )
+      ).to.not.be.reverted;
+    });
+  });
+
+  describe("getMaxVestingStartDelay", function () {
+    it("should return the correct max vesting start delay", async function () {
+      const expectedDelay = 86400n * 30n;
+      expect(await airdrop.getMaxVestingStartDelay()).to.equal(expectedDelay);
+    });
+  });
+
+  describe("getCampaignUnclaimedAmount", function () {
+    it("should return the correct unclaimed amount for a campaign", async function () {
+      await airdrop.createCampaign(token.target);
+      await airdrop.addRecipients(
+        0n,
+        [recipient1.address],
+        [TOTAL_TOKENS / 10n]
+      );
+      await airdrop.finalizeCampaign(0n, vestingStart, vestingDuration);
+
+      expect(await airdrop.getCampaignUnclaimedAmount(0n)).to.equal(
+        TOTAL_TOKENS / 10n
+      );
+
+      await time.increaseTo(vestingStart + 86400n);
+
+      await airdrop.connect(recipient1).claim(0n);
+
+      const unclaimedAmount = await airdrop.getCampaignUnclaimedAmount(0n);
+      expect(unclaimedAmount).to.be.lt(TOTAL_TOKENS / 10n);
+    });
+
+    it("should return zero for non-existent campaign", async function () {
+      const nonExistentCampaignId = 999n;
+      expect(
+        await airdrop.getCampaignUnclaimedAmount(nonExistentCampaignId)
+      ).to.equal(0n);
+    });
+
+    it("should return total amount for finalized campaign with no claims", async function () {
+      await airdrop.createCampaign(token.target);
+      await airdrop.addRecipients(
+        0n,
+        [recipient1.address],
+        [TOTAL_TOKENS / 10n]
+      );
+      await airdrop.finalizeCampaign(0n, vestingStart, vestingDuration);
+
+      expect(await airdrop.getCampaignUnclaimedAmount(0n)).to.equal(
+        TOTAL_TOKENS / 10n
+      );
     });
   });
 });

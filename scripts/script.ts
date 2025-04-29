@@ -106,6 +106,13 @@ async function main() {
         `  ✓ AirdropERC20 deployed at: ${chalk.white(airdropAddress)}`
       )
     );
+    console.log(
+      chalk.blue(
+        `  🔗 Explorer: ${chalk.cyan.underline(
+          `https://testnet-explorer.lumia.org/address/${airdropAddress}`
+        )}`
+      )
+    );
     console.log();
 
     console.log(chalk.blue(`📄 Deploying MockERC20 (${tokenSymbol})...`));
@@ -115,6 +122,13 @@ async function main() {
       chalk.green(
         `  ✓ MockERC20 (${tokenSymbol}) deployed at: ${chalk.white(
           tokenAddress
+        )}`
+      )
+    );
+    console.log(
+      chalk.blue(
+        `  🔗 Explorer: ${chalk.cyan.underline(
+          `https://testnet-explorer.lumia.org/address/${tokenAddress}`
         )}`
       )
     );
