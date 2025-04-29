@@ -155,3 +155,4 @@ This will create a CSV file with 1000 random addresses and default token amounts
 # AidropERC20
 
 # AidropERC20
+# AirdropERC20-Test
